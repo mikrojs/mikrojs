@@ -18,6 +18,8 @@ struct InspectOpts {
     bool colors;
     bool show_hidden;
     std::vector<void*> seen;
+    /* Nesting of [cause] rendering, capped like mik__report_uncaught */
+    int cause_level = 0;
 };
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -85,6 +87,7 @@ static std::string quote_key(const char* key) {
 /* ── Forward declaration ─────────────────────────────────────────── */
 
 static std::string inspect_value(JSContext* ctx, JSValue value, InspectOpts& opts, int depth);
+static std::string indent_continuation(const std::string& s);
 
 /* ── Custom inspect callback state (single-threaded JS) ──────────── */
 
@@ -263,7 +266,7 @@ static std::string inspect_array_items(JSContext* ctx, JSValue arr, uint32_t len
         if (JS_IsException(item)) {
             out += getter_threw(ctx, opts);
         } else {
-            out += inspect_value(ctx, item, opts, depth);
+            out += indent_continuation(inspect_value(ctx, item, opts, depth));
         }
         JS_FreeValue(ctx, item);
     }
@@ -318,7 +321,7 @@ static std::string inspect_properties(JSContext* ctx, JSValue obj, InspectOpts& 
             if (JS_IsException(val)) {
                 out += getter_threw(ctx, opts);
             } else {
-                out += inspect_value(ctx, val, opts, depth);
+                out += indent_continuation(inspect_value(ctx, val, opts, depth));
             }
             JS_FreeValue(ctx, val);
         }
@@ -474,6 +477,51 @@ static std::string inspect_regexp(JSContext* ctx, JSValue value, InspectOpts& op
     return stylize("/(?:)/", MIK_TOKEN_REGEXP, opts);
 }
 
+/* Indent every line after the first by two spaces so a multi-line value
+ * (an error's stack frames, its own cause) nests visibly under its parent. */
+static std::string indent_continuation(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char c : s) {
+        out += c;
+        if (c == '\n') out += "  ";
+    }
+    return out;
+}
+
+/* "\n  [cause]: <value>" for an own cause, or "". Shared by Errors and
+ * plain objects, since Result errors carry cause as an ordinary field.
+ * The chain is what a log line exists for, so it renders past the depth
+ * limit; the caller keeps the parent on the seen list to bound cycles. */
+static std::string inspect_cause(JSContext* ctx, JSValue value, InspectOpts& opts, int depth) {
+    JSValue cause = JS_GetPropertyStr(ctx, value, "cause");
+    if (JS_IsException(cause)) {
+        drain_exception(ctx);
+        return "";
+    }
+    /* Same cap as mik__report_uncaught; bounds recursion on the JS task stack */
+    static const int MAX_CAUSE_LEVEL = 4;
+    std::string out;
+    if (!JS_IsUndefined(cause)) {
+        out = "\n  [cause]: ";
+        if (opts.cause_level >= MAX_CAUSE_LEVEL) {
+            out += TRUNCATOR;
+        } else {
+            opts.cause_level++;
+            out += indent_continuation(inspect_value(ctx, cause, opts, depth < 1 ? 1 : depth));
+            opts.cause_level--;
+        }
+    }
+    JS_FreeValue(ctx, cause);
+    return out;
+}
+
+/* Errors render as
+ *   Name: message { extra: props }
+ *       at frame (file:line:col)
+ *     [cause]: <inspected cause>
+ * The header keeps name, message and every own enumerable field (code,
+ * errno, ...) on one line; the stack and the cause chain follow. */
 static std::string inspect_error(JSContext* ctx, JSValue value, InspectOpts& opts, int depth) {
     /* Get name and message */
     JSValue name_val = JS_GetPropertyStr(ctx, value, "name");
@@ -498,16 +546,40 @@ static std::string inspect_error(JSContext* ctx, JSValue value, InspectOpts& opt
     JS_FreeValue(ctx, name_val);
     JS_FreeValue(ctx, msg_val);
 
-    /* Inspect extra properties (skip standard error keys) */
+    if (is_seen(opts, value)) return result + " [Circular]";
+    opts.seen.push_back(JS_VALUE_GET_PTR(value));
+
+    /* Inspect extra properties (skip standard error keys; cause is rendered
+     * below so it reads the same whether QuickJS or a panic defined it) */
     static const char* const error_keys[] = {"stack",     "line",       "column",     "name",
                                              "message",   "fileName",   "lineNumber", "columnNumber",
-                                             "number",    "description"};
+                                             "number",    "description", "cause"};
     std::string props =
         inspect_properties(ctx, value, opts, depth, error_keys, countof(error_keys));
     if (!props.empty()) {
         result += " { " + props + " }";
     }
 
+    /* QuickJS stacks are frame lines only ("    at ..."), no header line */
+    JSValue stack_val = JS_GetPropertyStr(ctx, value, "stack");
+    if (JS_IsException(stack_val)) drain_exception(ctx);
+    if (JS_IsString(stack_val)) {
+        const char* stack = JS_ToCString(ctx, stack_val);
+        if (stack) {
+            std::string frames(stack);
+            JS_FreeCString(ctx, stack);
+            while (!frames.empty() && frames.back() == '\n') frames.pop_back();
+            if (!frames.empty()) {
+                result += "\n";
+                result += frames;
+            }
+        }
+    }
+    JS_FreeValue(ctx, stack_val);
+
+    result += inspect_cause(ctx, value, opts, depth);
+
+    opts.seen.pop_back();
     return result;
 }
 
@@ -603,9 +675,9 @@ static std::string inspect_map(JSContext* ctx, JSValue value, InspectOpts& opts,
 
         if (!first) items += ", ";
         first = false;
-        items += inspect_value(ctx, key, opts, depth);
+        items += indent_continuation(inspect_value(ctx, key, opts, depth));
         items += " => ";
-        items += inspect_value(ctx, val, opts, depth);
+        items += indent_continuation(inspect_value(ctx, val, opts, depth));
 
         JS_FreeValue(ctx, key);
         JS_FreeValue(ctx, val);
@@ -673,7 +745,7 @@ static std::string inspect_set(JSContext* ctx, JSValue value, InspectOpts& opts,
         JSValue val = JS_GetPropertyStr(ctx, step, "value");
         if (!first) items += ", ";
         first = false;
-        items += inspect_value(ctx, val, opts, depth);
+        items += indent_continuation(inspect_value(ctx, val, opts, depth));
         JS_FreeValue(ctx, val);
         JS_FreeValue(ctx, step);
     }
@@ -746,11 +818,16 @@ static std::string inspect_object(JSContext* ctx, JSValue value, InspectOpts& op
 
     if (plen == 0) return "{}";
 
+    /* A cause field chains below the braces like an Error's, so a Result
+     * error wrapped around another keeps its whole chain readable */
+    static const char* const cause_key[] = {"cause"};
     opts.seen.push_back(JS_VALUE_GET_PTR(value));
-    std::string props = inspect_properties(ctx, value, opts, depth);
+    std::string props = inspect_properties(ctx, value, opts, depth, cause_key, 1);
+    std::string result = props.empty() ? "{}" : "{ " + props + " }";
+    result += inspect_cause(ctx, value, opts, depth);
     opts.seen.pop_back();
 
-    return "{ " + props + " }";
+    return result;
 }
 
 static std::string inspect_class(JSContext* ctx, JSValue value, const std::string& type_name,

@@ -222,3 +222,69 @@ TEST_CASE_FIXTURE(BuiltinFixture, "the builtin path drains getter exceptions too
     CHECK_FALSE(JS_HasException(ctx));
     CHECK(contains(global_str("__thrower"), "boom: [getter threw]"));
 }
+
+/* ── Errors: fields, stack, cause chain ──────────────────────────── */
+
+TEST_CASE_FIXTURE(DirectFixture, "inspect renders an Error with fields, stack and cause chain" *
+                                     doctest::test_suite("inspect")) {
+    std::string out = inspect_eval(
+        "const root = Object.assign(new TypeError('root'), {errno: 2})\n"
+        "Object.assign(new Error('top', {cause: root}), {code: 7, path: '/x'})");
+    CHECK(contains(out, "Error: top { code: 7, path: '/x' }\n    at "));
+    CHECK(contains(out, "\n  [cause]: TypeError: root { errno: 2 }\n      at "));
+
+    /* A plain-object cause (a Result error) inspects as an object even past
+     * the depth limit, since the cause is the point of the log line */
+    out = inspect_eval("new Error('panic', {cause: {name: 'ConnectFailed', message: 'timeout'}})");
+    CHECK(contains(out, "\n  [cause]: { name: 'ConnectFailed', message: 'timeout' }"));
+
+    /* Cyclic causes terminate */
+    out = inspect_eval("const e = new Error('loop'); e.cause = e; e");
+    CHECK(contains(out, "Error: loop\n    at "));
+    CHECK(contains(out, "\n  [cause]: Error: loop [Circular]"));
+
+    /* No stack property: header only, no trailing newline */
+    out = inspect_eval("({[Symbol.toStringTag]: 'Error', name: 'Fake', message: 'no frames'})");
+    CHECK(out == "Fake: no frames");
+}
+
+TEST_CASE_FIXTURE(DirectFixture, "inspect chains the cause of a plain error-like object" *
+                                     doctest::test_suite("inspect")) {
+    /* Result errors are plain objects; a cause field chains the same way
+     * as an Error's, past the depth limit, instead of hitting [Object] */
+    std::string out = inspect_eval(
+        "({name: 'ConnectFailed', message: 'auth failed',"
+        "  cause: {name: 'Dhcp', message: 'no lease', cause: {name: 'Deep'}}})");
+    CHECK(out == "{ name: 'ConnectFailed', message: 'auth failed' }\n"
+                 "  [cause]: { name: 'Dhcp', message: 'no lease' }\n"
+                 "    [cause]: { name: 'Deep' }");
+
+    /* An Error inside a plain error keeps its frames, indented */
+    out = inspect_eval(
+        "({name: 'ConnectFailed', cause: Object.assign(new Error('reset'), {errno: 104})})");
+    CHECK(contains(out, "{ name: 'ConnectFailed' }\n  [cause]: Error: reset { errno: 104 }\n      at "));
+
+    /* Only a cause field; cycles terminate */
+    CHECK(inspect_eval("({cause: 'user'})") == "{}\n  [cause]: 'user'");
+    out = inspect_eval("const o = {name: 'Loop'}; o.cause = o; o");
+    CHECK(out == "{ name: 'Loop' }\n  [cause]: [Circular]");
+}
+
+TEST_CASE_FIXTURE(DirectFixture, "inspect nests a multi-line Error under its container" *
+                                     doctest::test_suite("inspect")) {
+    std::string out = inspect_eval("({attempt: 3, err: new Error('boom')})");
+    CHECK(contains(out, "{ attempt: 3, err: Error: boom\n      at "));
+    out = inspect_eval("[new Error('boom')]");
+    CHECK(contains(out, "[ Error: boom\n      at "));
+}
+
+TEST_CASE_FIXTURE(DirectFixture, "inspect caps the cause chain like the uncaught reporter" *
+                                     doctest::test_suite("inspect")) {
+    std::string out = inspect_eval(
+        "let e = {name: 'c6'}\n"
+        "for (const n of ['c5', 'c4', 'c3', 'c2', 'c1', 'top']) e = {name: n, cause: e}\n"
+        "e");
+    CHECK(contains(out, "[cause]: { name: 'c4' }"));
+    CHECK(contains(out, "[cause]: \xe2\x80\xa6"));
+    CHECK_FALSE(contains(out, "c5"));
+}

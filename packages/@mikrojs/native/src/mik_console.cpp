@@ -3,7 +3,6 @@
 #include <cstring>
 #include <string>
 #include <unistd.h>
-#include <vector>
 
 #include <quickjs.h>
 
@@ -122,41 +121,6 @@ static std::string mik__format(JSContext* ctx, int argc, JSValue* argv, bool col
     return result;
 }
 
-/* ── Error formatting (port of console.ts formatError) ───────────── */
-
-static std::string mik__format_error(JSContext* ctx, JSValue error) {
-    JSValue stack_val = JS_GetPropertyStr(ctx, error, "stack");
-    JSValue msg_val = JS_GetPropertyStr(ctx, error, "message");
-
-    const char* stack = JS_ToCString(ctx, stack_val);
-    const char* msg = JS_ToCString(ctx, msg_val);
-
-    std::string result;
-    if (stack && msg && strstr(stack, msg)) {
-        /* Stack already includes message */
-        result = stack;
-    } else {
-        JSValue name_val = JS_GetPropertyStr(ctx, error, "name");
-        const char* name = JS_ToCString(ctx, name_val);
-        result = name ? name : "Error";
-        result += ": ";
-        result += msg ? msg : "";
-        if (stack) {
-            result += "\n";
-            result += stack;
-        }
-        if (name) JS_FreeCString(ctx, name);
-        JS_FreeValue(ctx, name_val);
-    }
-
-    if (stack) JS_FreeCString(ctx, stack);
-    if (msg) JS_FreeCString(ctx, msg);
-    JS_FreeValue(ctx, stack_val);
-    JS_FreeValue(ctx, msg_val);
-
-    return result;
-}
-
 /* ── Console methods ─────────────────────────────────────────────── */
 
 static JSValue mik__console_log(JSContext* ctx, JSValue this_val, int argc, JSValue* argv) {
@@ -205,24 +169,9 @@ static JSValue mik__console_error_warn(JSContext* ctx, JSValue this_val, int arg
                                        int magic) {
     uint8_t msg_type = magic == 0 ? MIK_MSG_ERROR : MIK_MSG_WARN;
 
-    /* Map Error objects to their stack traces */
-    std::vector<JSValue> mapped;
-    mapped.reserve(argc);
-
-    for (int i = 0; i < argc; i++) {
-        if (JS_IsError(argv[i])) {
-            std::string err_str = mik__format_error(ctx, argv[i]);
-            mapped.push_back(JS_NewString(ctx, err_str.c_str()));
-        } else {
-            mapped.push_back(JS_DupValue(ctx, argv[i]));
-        }
-    }
-
-    std::string output = mik__format(ctx, argc, mapped.data(), true);
-
-    for (auto& v : mapped) {
-        JS_FreeValue(ctx, v);
-    }
+    /* Error arguments render through inspect: name, message, extra fields,
+     * stack and cause chain. Same output as console.log for the same value. */
+    std::string output = mik__format(ctx, argc, argv, true);
 
     if (mik__repl_is_protocol_mode()) {
         mik__repl_proto_send_output(msg_type, output.c_str(), output.size());
@@ -235,6 +184,152 @@ static JSValue mik__console_error_warn(JSContext* ctx, JSValue this_val, int arg
 }
 
 /* ── Uncaught error reporting ─────────────────────────────────────── */
+
+/* Bounded stack-buffer writer for the uncaught path: never touches the
+ * C++ heap (see mik__report_uncaught). Silently truncates when full. */
+struct MIKBoundedBuf {
+    char* buf;
+    size_t cap;
+    size_t pos = 0;
+    void append(const char* s, size_t len) {
+        if (pos >= cap - 1) return;
+        size_t avail = cap - 1 - pos;
+        size_t n = len < avail ? len : avail;
+        memcpy(buf + pos, s, n);
+        pos += n;
+    }
+    void cstr(const char* s) {
+        if (s) append(s, strlen(s));
+    }
+};
+
+/* One primitive as a log token (strings quoted). Objects print as
+ * [object]: nested inspection would need the C++ heap. */
+static void mik__append_primitive(JSContext* ctx, JSValue v, MIKBoundedBuf& out) {
+    if (JS_IsObject(v)) {
+        out.cstr("[object]");
+        return;
+    }
+    /* Allocation-free spellings first: a null rejection is how QuickJS
+     * reports OOM, so this must work with no heap at all */
+    if (JS_IsNull(v)) {
+        out.cstr("null");
+        return;
+    }
+    if (JS_IsUndefined(v)) {
+        out.cstr("undefined");
+        return;
+    }
+    if (JS_IsBool(v)) {
+        out.cstr(JS_ToBool(ctx, v) ? "true" : "false");
+        return;
+    }
+    if (JS_VALUE_GET_TAG(v) == JS_TAG_INT) {
+        char num[16];
+        int n = snprintf(num, sizeof(num), "%d", JS_VALUE_GET_INT(v));
+        if (n > 0) out.append(num, (size_t)n);
+        return;
+    }
+    bool quote = JS_IsString(v);
+    /* JS-heap allocation only; returns NULL on OOM instead of throwing */
+    const char* s = JS_ToCString(ctx, v);
+    if (!s) {
+        /* Symbols reject ToString */
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        out.cstr("[primitive]");
+        return;
+    }
+    if (quote) out.cstr("'");
+    out.cstr(s);
+    if (quote) out.cstr("'");
+    JS_FreeCString(ctx, s);
+}
+
+/* "Name: message { extra: fields }" then the stack frames, `indent`
+ * prefixed to every frame line. Also fits a plain object (a Result error
+ * as a panic cause has name/message and no stack). */
+static void mik__append_error_head(JSContext* ctx, JSValue exc, const char* indent, MIKBoundedBuf& out) {
+    JSValue name_val = JS_GetPropertyStr(ctx, exc, "name");
+    JSValue msg_val = JS_GetPropertyStr(ctx, exc, "message");
+    if (JS_IsException(name_val) || JS_IsException(msg_val)) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+    }
+    /* Non-string name/message count as absent (a native Result error has
+     * code + message and no name) */
+    const char* name = JS_IsString(name_val) ? JS_ToCString(ctx, name_val) : nullptr;
+    const char* emsg = JS_IsString(msg_val) ? JS_ToCString(ctx, msg_val) : nullptr;
+
+    if (name && name[0]) {
+        out.cstr(name);
+        if (emsg && emsg[0]) {
+            out.cstr(": ");
+            out.cstr(emsg);
+        }
+    } else if (emsg && emsg[0]) {
+        out.cstr(emsg);
+    } else {
+        out.cstr("[object]");
+    }
+
+    if (name) JS_FreeCString(ctx, name);
+    if (emsg) JS_FreeCString(ctx, emsg);
+    JS_FreeValue(ctx, name_val);
+    JS_FreeValue(ctx, msg_val);
+
+    /* Own enumerable fields beyond the standard ones: code, errno, path... */
+    JSPropertyEnum* ptab = nullptr;
+    uint32_t plen = 0;
+    if (JS_GetOwnPropertyNames(ctx, &ptab, &plen, exc, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) ==
+        0) {
+        bool first = true;
+        for (uint32_t i = 0; i < plen; i++) {
+            const char* key = JS_AtomToCString(ctx, ptab[i].atom);
+            if (key && strcmp(key, "name") != 0 && strcmp(key, "message") != 0 &&
+                strcmp(key, "stack") != 0 && strcmp(key, "cause") != 0) {
+                JSValue v = JS_GetProperty(ctx, exc, ptab[i].atom);
+                if (JS_IsException(v)) {
+                    JS_FreeValue(ctx, JS_GetException(ctx));
+                } else {
+                    out.cstr(first ? " { " : ", ");
+                    first = false;
+                    out.cstr(key);
+                    out.cstr(": ");
+                    mik__append_primitive(ctx, v, out);
+                }
+                JS_FreeValue(ctx, v);
+            }
+            if (key) JS_FreeCString(ctx, key);
+            JS_FreeAtom(ctx, ptab[i].atom);
+        }
+        if (!first) out.cstr(" }");
+        js_free(ctx, ptab);
+    } else {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+    }
+
+    JSValue stack_val = JS_GetPropertyStr(ctx, exc, "stack");
+    if (JS_IsString(stack_val)) {
+        const char* stack = JS_ToCString(ctx, stack_val);
+        if (stack) {
+            const char* p = stack;
+            while (*p) {
+                const char* nl = strchr(p, '\n');
+                size_t len = nl ? (size_t)(nl - p) : strlen(p);
+                if (len) {
+                    out.cstr("\n");
+                    out.cstr(indent);
+                    out.append(p, len);
+                }
+                if (!nl) break;
+                p = nl + 1;
+            }
+            JS_FreeCString(ctx, stack);
+        }
+    } else if (JS_IsException(stack_val)) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+    }
+    JS_FreeValue(ctx, stack_val);
+}
 
 /* Dedup across report paths: one error can reach this function more than
  * once for a single failure. The sync throw path (mik_dump_error) can report
@@ -275,77 +370,59 @@ bool mik__report_uncaught(JSContext* ctx, JSValue exc, bool in_promise) {
      * abort() — masking the real OOM the reporter was trying to surface.
      * Messages longer than the buffer get truncated, which beats
      * aborting. */
-    char buf[512];
-    size_t pos = 0;
-    auto append = [&](const char* s, size_t len) {
-        if (pos >= sizeof(buf) - 1) return;
-        size_t avail = sizeof(buf) - 1 - pos;
-        size_t n = len < avail ? len : avail;
-        memcpy(buf + pos, s, n);
-        pos += n;
-    };
-    auto append_cstr = [&](const char* s) {
-        if (s) append(s, strlen(s));
-    };
+    char buf[1024];
+    MIKBoundedBuf out{buf, sizeof(buf)};
 
-    append_cstr(in_promise ? "Uncaught (in promise) " : "Uncaught ");
+    out.cstr(in_promise ? "Uncaught (in promise) " : "Uncaught ");
 
     if (JS_IsObject(exc)) {
-        JSValue name_val = JS_GetPropertyStr(ctx, exc, "name");
-        JSValue msg_val = JS_GetPropertyStr(ctx, exc, "message");
-        const char* name = JS_ToCString(ctx, name_val);
-        const char* emsg = JS_ToCString(ctx, msg_val);
+        mik__append_error_head(ctx, exc, "", out);
 
-        if (name && name[0]) {
-            append_cstr(name);
-            if (emsg && emsg[0]) {
-                append_cstr(": ");
-                append_cstr(emsg);
+        /* Cause chain: a panic's cause is the Result error that triggered
+         * it, so this is usually the line that says what actually failed.
+         * Bounded depth; `seen` cuts cycles. */
+        static const char* const indents[] = {"", "  ", "    ", "      ", "        "};
+        void* seen[countof(indents)] = {JS_VALUE_GET_PTR(exc)};
+        JSValue cur = JS_DupValue(ctx, exc);
+        for (size_t level = 1; level < countof(indents); level++) {
+            JSValue cause = JS_GetPropertyStr(ctx, cur, "cause");
+            JS_FreeValue(ctx, cur);
+            cur = cause;
+            if (JS_IsException(cause)) {
+                JS_FreeValue(ctx, JS_GetException(ctx));
+                break;
             }
-        } else if (emsg && emsg[0]) {
-            append_cstr(emsg);
-        } else {
-            append_cstr("[object]");
-        }
-
-        if (name) JS_FreeCString(ctx, name);
-        if (emsg) JS_FreeCString(ctx, emsg);
-        JS_FreeValue(ctx, name_val);
-        JS_FreeValue(ctx, msg_val);
-
-        JSValue stack_val = JS_GetPropertyStr(ctx, exc, "stack");
-        if (JS_IsString(stack_val)) {
-            const char* stack = JS_ToCString(ctx, stack_val);
-            if (stack && stack[0]) {
-                append_cstr("\n");
-                append_cstr(stack);
+            if (JS_IsUndefined(cause)) break;
+            out.cstr("\n");
+            out.cstr(indents[level]);
+            out.cstr("[cause]: ");
+            if (!JS_IsObject(cause)) {
+                mik__append_primitive(ctx, cause, out);
+                break;
             }
-            if (stack) JS_FreeCString(ctx, stack);
+            bool cyclic = false;
+            for (size_t j = 0; j < level; j++) {
+                if (seen[j] == JS_VALUE_GET_PTR(cause)) cyclic = true;
+            }
+            if (cyclic) {
+                out.cstr("[Circular]");
+                break;
+            }
+            seen[level] = JS_VALUE_GET_PTR(cause);
+            mik__append_error_head(ctx, cause, indents[level], out);
         }
-        JS_FreeValue(ctx, stack_val);
+        JS_FreeValue(ctx, cur);
     } else {
         /* Describe primitive rejections by type without going through
          * mik_inspect (which allocates a std::string). */
-        if (JS_IsNull(exc)) {
-            append_cstr("null");
-        } else if (JS_IsUndefined(exc)) {
-            append_cstr("undefined");
-        } else if (JS_IsBool(exc)) {
-            append_cstr(JS_ToBool(ctx, exc) ? "true" : "false");
-        } else if (JS_IsNumber(exc)) {
-            double d = 0;
-            JS_ToFloat64(ctx, &d, exc);
-            char num[32];
-            int n = snprintf(num, sizeof(num), "%g", d);
-            if (n > 0) append(num, (size_t)n);
-        } else if (JS_IsString(exc)) {
+        if (JS_IsString(exc)) {
             const char* s = JS_ToCString(ctx, exc);
             if (s) {
-                append_cstr(s);
+                out.cstr(s);
                 JS_FreeCString(ctx, s);
             }
         } else {
-            append_cstr("[primitive]");
+            mik__append_primitive(ctx, exc, out);
         }
 
         /* Primitive rejections lose the throw-site stack (the async
@@ -359,17 +436,17 @@ bool mik__report_uncaught(JSContext* ctx, JSValue exc, bool in_promise) {
             int n = snprintf(note, sizeof(note),
                              "\n  (primitive rejection, systemFree=%zuB at report time)",
                              plat->get_free_system_mem());
-            if (n > 0) append(note, (size_t)n);
+            if (n > 0) out.append(note, (size_t)n);
         }
     }
 
     if (mik__repl_is_protocol_mode()) {
-        mik__repl_proto_send_output(MIK_MSG_ERROR, buf, pos);
+        mik__repl_proto_send_output(MIK_MSG_ERROR, buf, out.pos);
         return true;
     }
 
-    append_cstr("\r\n");
-    MIK_GetPlatform()->stderr_write(buf, pos);
+    out.cstr("\r\n");
+    MIK_GetPlatform()->stderr_write(buf, out.pos);
     return true;
 }
 
