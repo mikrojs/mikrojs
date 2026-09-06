@@ -4,7 +4,6 @@
 import {env} from 'mikro/env'
 import {createServer, type ServerResponse} from 'mikro/http/server'
 import {I2s} from 'mikro/i2s'
-import {panic} from 'mikro/sys'
 import {wifi} from 'mikro/wifi'
 
 // Pins: SCK/BCLK -> GPIO 4, WS/LRCL -> GPIO 5, SD/DOUT -> GPIO 6. See README.md
@@ -24,7 +23,7 @@ console.log('Connecting to %s...', ssid)
 const connected = await wifi.connect({ssid, passphrase})
 if (!connected.ok) {
   // onPanic: restart (mikro.config.ts) retries the connection on a clean boot.
-  panic(`WiFi connect failed: ${connected.error.name}`)
+  connected.orPanic('WiFi connect failed')
 } else {
   const ip = connected.value.ip
   console.log('Connected.')
@@ -76,7 +75,7 @@ if (!connected.ok) {
     for (;;) {
       const pcm = mic.capture(FRAME, {gainBits: GAIN_BITS})
       if (!pcm.ok) {
-        console.error('mic capture failed: %s', pcm.error.name)
+        console.error('mic capture failed:', pcm.error)
         break
       }
       yield new Uint8Array(pcm.value.buffer, pcm.value.byteOffset, pcm.value.byteLength)
@@ -102,7 +101,7 @@ if (!connected.ok) {
   })
 
   const listening = server.listen({port: 80})
-  if (!listening.ok) panic(`listen failed: ${listening.error.name}`)
+  listening.orPanic('listen failed')
   console.log('Live mic streaming at http://%s/stream.wav', ip)
   console.log('Open it in a browser, or run: ffplay http://%s/stream.wav', ip)
 }

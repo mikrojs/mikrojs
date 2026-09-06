@@ -45,7 +45,7 @@ let temp = 21.5
 let result = await startAdvertising(temp)
 
 if (!result.ok) {
-  console.error('ble.advertise failed: %s', result.error.name)
+  console.error('ble.advertise failed:', result.error)
 } else {
   console.log('BLE beacon advertising as %s at %s', ble.name, ble.address)
 
@@ -54,11 +54,11 @@ if (!result.ok) {
     temp += (Math.random() - 0.5) * 0.2
     const stopResult = result.value.stop()
     if (!stopResult.ok) {
-      console.warn('ble.stop (refresh) failed: %s', stopResult.error.name)
+      console.warn('ble.stop (refresh) failed:', stopResult.error)
     }
     result = await startAdvertising(temp)
     if (!result.ok) {
-      console.error('ble.advertise (refresh) failed: %s', result.error.name)
+      console.error('ble.advertise (refresh) failed:', result.error)
       break
     }
   }

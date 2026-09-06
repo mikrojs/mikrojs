@@ -40,7 +40,7 @@ while (true) {
 
   const writeResult = digitalWrite(PIN, value)
   if (!writeResult.ok) {
-    console.error('Write failed: %s', writeResult.error.name)
+    console.error('Write failed:', writeResult.error)
   }
 
   await sleep(1000)

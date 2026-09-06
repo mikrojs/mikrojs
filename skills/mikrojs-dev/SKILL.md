@@ -41,7 +41,7 @@ import {pinMode, digitalWrite} from 'mikro/pin'
 // Check the result
 const result = pinMode(4, 'OUTPUT')
 if (!result.ok) {
-  console.error('Failed:', result.error.name)
+  console.error('Failed:', result.error)
   // result.error is a typed discriminated union
 }
 
@@ -62,6 +62,25 @@ pinMode(LED_PIN, 'OUTPUT').orPanic('LED pin must work')
 - `try/catch`: only for truly unexpected errors (bugs), not hardware failures
 
 Exceptions (`throw`) are for programmer errors. Result is for expected failures. Never use `try/catch` around hardware APIs.
+
+### Logging errors: pass the error object, never a string built from it
+
+`console.error` and `console.warn` print an error value in full: name, message, every extra field (`code`, `errno`, `path`, ...), the stack, and the `cause` chain. Formatting the error into the message keeps only what you picked and drops the rest.
+
+```typescript
+// WRONG: keeps the name, loses message, fields, stack and cause
+console.error('WiFi failed: %s', result.error.name)
+console.error(`WiFi failed: ${result.error.message}`)
+
+// RIGHT: context string, then the error as its own argument
+console.error('WiFi failed:', result.error)
+```
+
+The same rule applies when an error moves instead of being logged:
+
+- Returning: propagate the typed error as-is (`if (!r.ok) return r`), or add context with `err(new Error('download failed', {cause: r.error}))`. Never flatten to `{message: r.error.name}`.
+- Panicking: `result.orPanic('wifi required')` keeps the error as the panic's cause. Do not build ``panic(`failed: ${result.error.name}`)``.
+- Converting a caught exception to a Result: carry the thrown value as `cause`, not `e.message`.
 
 ## Memory management
 
@@ -170,7 +189,7 @@ if (!conn.ok) {
 // request returns Result, not throwing
 const res = await request('https://api.example.com/data')
 if (!res.ok) {
-  console.error('Request failed:', res.error.name)
+  console.error('Request failed:', res.error)
   // RequestError variants: Network, Timeout, BodyTooLarge, InvalidResponse,
   // Aborted, TooManyPending, Hardware
 } else {

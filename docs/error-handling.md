@@ -35,7 +35,7 @@ try {
   //      ^?
   //
   //
-  console.error('Something went wrong: %s', err)
+  console.error('Something went wrong:', err)
 }
 ```
 
@@ -66,10 +66,10 @@ if (result.ok) {
       console.error('Pin 34 is not a valid ADC pin')
       break
     case 'AdcInitFailed':
-      console.error('ADC hardware failed: %s', result.error.message)
+      console.error('ADC hardware failed:', result.error)
       break
     default:
-      console.error('Read failed: %s', result.error.name)
+      console.error('Read failed:', result.error)
   }
 }
 ```
@@ -193,6 +193,57 @@ Errors are plain data, not class instances. Cheap to create and easy to inspect.
 
 For variants with only one or two call sites, an inline `err({name: 'X' as const, ...})` literal is fine; the factory pattern is just discoverability over the same shape.
 
+## Logging errors
+
+Pass the error as its own argument to `console.error` or `console.warn`, after a short context string:
+
+```ts twoslash
+import {wifi} from 'mikro/wifi'
+// ---cut---
+const result = await wifi.connect({ssid: 'net', passphrase: 'pw'})
+if (!result.ok) {
+  console.error('WiFi connect failed:', result.error)
+}
+```
+
+The console prints the whole value. A `Result` error prints as an object with every field, and a `cause` field chains below it:
+
+```
+WiFi connect failed: { name: 'ConnectFailed', message: 'auth failed' }
+  [cause]: { name: 'Dhcp', message: 'no lease' }
+```
+
+An `Error` instance prints its name and message, any extra own fields, the stack, and the `cause` chain, nested under it:
+
+```
+update failed: Error: download failed { code: 7 }
+    at update (main.js:12:3)
+  [cause]: { name: 'Timeout', message: 'no response after 5000ms' }
+```
+
+Do not format the error into the message. Each of these keeps one piece and throws away the rest:
+
+```ts
+// Keeps the name, loses message, fields, stack and cause
+console.error('WiFi connect failed: %s', result.error.name)
+console.error(`WiFi connect failed: ${result.error.message}`)
+console.error('WiFi connect failed: ' + String(result.error))
+```
+
+A failure with no error value is logged the same way, with the value that describes it:
+
+```ts
+console.error('checkin returned status:', response.status)
+```
+
+### Passing errors along
+
+The same rule applies when an error moves instead of being logged. Keep the original value:
+
+- **Returning** from a function: propagate the typed error as-is (`if (!r.ok) return r`), or add context and keep the original as `cause`: `err(new Error('download failed', {cause: r.error}))`. Never flatten to `{message: r.error.name}`.
+- **Panicking**: `result.orPanic('WiFi required')` keeps the error as the panic's cause, and the crash report prints it. Do not build the message yourself with ``panic(`failed: ${result.error.name}`)``.
+- **Converting a caught exception** to a `Result`: carry the thrown value as `cause`, not `e.message`. See [Creating drivers](/develop/creating-drivers) for the native-boundary pattern.
+
 ## What about exceptions?
 
 Exceptions still exist in Mikro.js, but they're treated as **panics**: unrecoverable bugs, not expected error conditions.
@@ -261,6 +312,12 @@ if (result.ok) {
 // Early return on error
 const result = analogRead(pin)
 if (!result.ok) return result
+
+// Log an error: context string, then the error itself (never %s / .name / .message)
+if (!result.ok) console.error('read failed:', result.error)
+
+// Add context while returning: keep the original as cause
+if (!result.ok) return err(new Error('sensor read failed', {cause: result.error}))
 
 // Transform success
 result.map((value) => value * 2)

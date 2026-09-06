@@ -32,6 +32,23 @@ const console: {
 
 Logs to the serial console on device, or stdout in the simulator.
 
+Pass error values as their own argument, never formatted into the message. An `Error` prints as its name and message, any extra own fields, the stack, and the `cause` chain; a plain `Result` error prints as an object with all its fields, and a `cause` field chains below it the same way:
+
+```ts twoslash
+import {wifi} from 'mikro/wifi'
+// ---cut---
+const result = await wifi.connect({ssid: 'net', passphrase: 'pw'})
+if (!result.ok) {
+  console.error('WiFi connect failed:', result.error)
+}
+```
+
+```
+WiFi connect failed: { name: 'ConnectFailed', message: 'auth failed' }
+```
+
+Formatting with `%s`, `.name`, `.message`, or a template string throws those details away. See [Logging errors](/error-handling#logging-errors).
+
 ## btoa / atob
 
 ```ts

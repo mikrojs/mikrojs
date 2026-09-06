@@ -59,7 +59,7 @@ const passphrase = env.require('WIFI_PASSPHRASE')
 console.log(`Connecting to ${ssid}...`)
 const connectResult = await wifi.connect({ssid, passphrase})
 if (!connectResult.ok) {
-  console.error('WiFi connect failed: %s', connectResult.error.name)
+  console.error('WiFi connect failed:', connectResult.error)
 } else {
   console.log('Connected! IP: %s', connectResult.value.ip)
 
@@ -67,7 +67,7 @@ if (!connectResult.ok) {
   console.log('Syncing time...')
   const syncResult = await sntp.sync({timezone: 'CET-1CEST,M3.5.0,M10.5.0/3'})
   if (!syncResult.ok) {
-    console.error('SNTP sync failed: %s', syncResult.error.name)
+    console.error('SNTP sync failed:', syncResult.error)
   } else {
     console.log('Time synced: %s', syncResult.value.time)
     console.log('Current time: %s', new Date())

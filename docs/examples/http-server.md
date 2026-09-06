@@ -28,7 +28,7 @@ const passphrase = env.require('WIFI_PASSPHRASE')
 console.log('Connecting to %s...', ssid)
 const connected = await wifi.connect({ssid, passphrase})
 if (!connected.ok) {
-  console.error('WiFi connect failed: %s', connected.error.name)
+  console.error('WiFi connect failed:', connected.error)
 } else {
   console.log('Connected. Open http://%s/', connected.value.ip)
 

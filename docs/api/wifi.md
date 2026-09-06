@@ -18,7 +18,7 @@ import {wifi} from 'mikro/wifi'
 // ---cut---
 const result = await wifi.connect({ssid: 'MyNetwork', passphrase: 'password123'})
 if (!result.ok) {
-  console.error('WiFi failed: %s', result.error.name)
+  console.error('WiFi failed:', result.error)
 } else {
   console.log('Connected, IP: %s', result.value.ip)
 }

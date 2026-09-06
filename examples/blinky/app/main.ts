@@ -11,7 +11,7 @@ while (true) {
   value = value === 0 ? 1 : 0
   const writeResult = digitalWrite(PIN, value)
   if (!writeResult.ok) {
-    console.error('Write pin failed: %s', writeResult.error.name)
+    console.error('Write pin failed:', writeResult.error)
   }
 
   await sleep(1000)

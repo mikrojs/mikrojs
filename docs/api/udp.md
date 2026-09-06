@@ -18,7 +18,7 @@ import {bind} from 'mikro/udp'
 
 const result = await bind({port: 5683})
 if (!result.ok) {
-  console.error('bind failed: %s', result.error.name)
+  console.error('bind failed:', result.error)
 } else {
   const socket = result.value
 

@@ -3,6 +3,7 @@
 
 #include <mikrojs/mikrojs.h>
 #include <mikrojs/platform.h>
+#include <mikrojs/private.h>
 #include <quickjs.h>
 
 #include <doctest.h>
@@ -146,16 +147,77 @@ TEST_CASE_FIXTURE(CaptureFixture, "console format specifiers" * doctest::test_su
     CHECK(contains(out, "1, false, null")); /* non-string first arg: inspect-join */
 }
 
-TEST_CASE_FIXTURE(CaptureFixture, "console.error maps Error objects to stack traces" *
+TEST_CASE_FIXTURE(CaptureFixture, "console.error prints the whole error: fields, stack, cause" *
                                       doctest::test_suite("console")) {
     run(ctx,
-        "console.error('context:', new Error('kaboom'))\n"
+        "const inner = Object.assign(new TypeError('inner'), {errno: 5})\n"
+        "const outer = Object.assign(new Error('kaboom', {cause: inner}), {code: 7})\n"
+        "console.error('context:', outer)\n"
         "console.warn(new TypeError('warned'))\n");
     std::string err = strip_ansi(g_stderr);
-    CHECK(contains(err, "context:"));
-    CHECK(contains(err, "kaboom"));
-    CHECK(contains(err, "at ")); /* stack frames present */
-    CHECK(contains(err, "TypeError: warned"));
+    CHECK(contains(err, "context: Error: kaboom { code: 7 }\n    at "));
+    CHECK(contains(err, "\n  [cause]: TypeError: inner { errno: 5 }\n      at "));
+    CHECK(contains(err, "TypeError: warned\n    at "));
+
+    /* A Result error wrapped for context keeps its own cause chain */
+    g_stderr.clear();
+    run(ctx,
+        "const failed = {name: 'ConnectFailed', message: 'auth failed', cause: {name: 'Dhcp'}}\n"
+        "console.error('wrapped:', new Error('WiFi connect failed', {cause: failed}))\n");
+    err = strip_ansi(g_stderr);
+    CHECK(contains(err, "wrapped: Error: WiFi connect failed\n    at "));
+    CHECK(contains(err, "\n  [cause]: { name: 'ConnectFailed', message: 'auth failed' }\n"
+                        "    [cause]: { name: 'Dhcp' }"));
+}
+
+TEST_CASE_FIXTURE(CaptureFixture, "console.log renders an Error the same way as console.error" *
+                                      doctest::test_suite("console")) {
+    run(ctx,
+        "const e = Object.assign(new Error('same'), {code: 1})\n"
+        "console.log(e)\n"
+        "console.error(e)\n");
+    std::string out = strip_ansi(g_stdout);
+    std::string err = strip_ansi(g_stderr);
+    CHECK(contains(out, "Error: same { code: 1 }\n    at "));
+    CHECK(out == err);
+}
+
+TEST_CASE_FIXTURE(CaptureFixture, "uncaught report includes fields and the cause chain" *
+                                      doctest::test_suite("console")) {
+    /* orPanic composes a PanicError whose cause is the Result error: the
+     * cause line is what says what actually failed. */
+    const char* src =
+        "import {err} from 'mikro/result'\n"
+        "err({name: 'ConnectFailed', message: 'timeout', errno: 110}).orPanic('wifi required')\n";
+    JSValue rv = JS_Eval(ctx, src, strlen(src), "mikro/test-uncaught", JS_EVAL_TYPE_MODULE);
+    REQUIRE(!JS_IsException(rv));
+    REQUIRE(JS_PromiseState(ctx, rv) == JS_PROMISE_REJECTED);
+    JSValue reason = JS_PromiseResult(ctx, rv);
+    JS_FreeValue(ctx, rv);
+    CHECK(mik__report_uncaught(ctx, reason, true));
+    JS_FreeValue(ctx, reason);
+    std::string err = strip_ansi(g_stderr);
+    CHECK(contains(err, "Uncaught (in promise) PanicError: wifi required"));
+    CHECK(contains(err, "\n  [cause]: ConnectFailed: timeout { errno: 110 }"));
+
+    /* Nested Error causes keep their frames, indented under their parent;
+     * a cyclic cause terminates. */
+    g_stderr.clear();
+    const char* src2 =
+        "const root = Object.assign(new RangeError('root'), {code: 3})\n"
+        "const mid = new Error('mid', {cause: root})\n"
+        "root.cause = mid\n"
+        "throw new Error('top', {cause: mid})\n";
+    JSValue rv2 = JS_Eval(ctx, src2, strlen(src2), "mikro/test-uncaught2", JS_EVAL_TYPE_GLOBAL);
+    REQUIRE(JS_IsException(rv2));
+    JSValue exc = JS_GetException(ctx);
+    CHECK(mik__report_uncaught(ctx, exc, false));
+    JS_FreeValue(ctx, exc);
+    err = strip_ansi(g_stderr);
+    CHECK(contains(err, "Uncaught Error: top\n    at "));
+    CHECK(contains(err, "\n  [cause]: Error: mid\n      at "));
+    CHECK(contains(err, "\n    [cause]: RangeError: root { code: 3 }\n        at "));
+    CHECK(contains(err, "\n      [cause]: [Circular]"));
 }
 
 TEST_CASE_FIXTURE(CaptureFixture, "inspect renders the value menagerie" *

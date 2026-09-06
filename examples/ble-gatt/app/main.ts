@@ -22,7 +22,7 @@ peripheral.onDisconnect.subscribe(async (info) => {
     includeTxPower: true,
     services: currentServices,
   })
-  if (!r.ok) console.error('re-advertise failed: %s', r.error.name)
+  if (!r.ok) console.error('re-advertise failed:', r.error)
 })
 
 peripheral.onMtu.subscribe((info) => {
@@ -77,7 +77,7 @@ const result = await peripheral.advertise({
 })
 
 if (!result.ok) {
-  console.error('ble.advertise failed: %s', result.error.name)
+  console.error('ble.advertise failed:', result.error)
 } else {
   console.log('BLE GATT peripheral advertising as %s', ble.name)
   console.log('address: %s', ble.address)
@@ -94,7 +94,7 @@ if (!result.ok) {
     level = level > 0 ? level - 1 : 100
     const update = result.value.notify('180f', '2a19', new Uint8Array([level]))
     if (!update.ok) {
-      console.error('notify failed: %s', update.error.name)
+      console.error('notify failed:', update.error)
       break
     }
   }

@@ -301,6 +301,15 @@ mikrojs (CLI) → @mikrojs/native → @mikrojs/quickjs
 - `mik_throw_errno(ctx, err)` — throws a JS error from an errno value
 - `mik_new_error(ctx, err)` — creates (but does not throw) a JS error from errno
 
+### Logging and Propagating Errors (JS/TS)
+
+The console prints an error value in full (name, message, extra fields, stack, cause chain), so always hand it the error object. This applies to runtime code, examples, docs, and skills alike; consumers copy what they see.
+
+- Log: `console.error('WiFi connect failed:', result.error)`. Never `console.error('failed: %s', err.name)`, `.message`, `String(err)`, or a template string; each drops the rest of the error.
+- Return: propagate the typed error as-is (`if (!r.ok) return r`), or add context with `err(new Error('download failed', {cause: r.error}))`. Never flatten to `{message: r.error.name}`.
+- Panic: `result.orPanic('wifi required')` keeps the error as the cause. Never ``panic(`failed: ${result.error.name}`)``.
+- Caught exception to Result: carry the thrown value as `cause`, not `e.message`.
+
 ### Feature Philosophy
 
 Every feature starts at [minus 100 points](https://learn.microsoft.com/en-us/archive/blogs/ericgu/minus-100-points). Don't add APIs, globals, or abstractions speculatively. A feature must justify itself with a concrete use case before it gets added, regardless of how small or easy it would be to implement. On a microcontroller this is doubly important: every global costs RAM per runtime instance, every module increases binary size, and every API is a maintenance commitment on a platform where debugging is hard.
