@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.2 (2026-09-06)
+
+### Bug fixes
+
+- improve error logging pattern ([#367](https://github.com/mikrojs/mikro/pull/367))
+- **runtime:** report failing imports instead of silently hanging ([#365](https://github.com/mikrojs/mikro/pull/365))
+
 ## 0.20.1 (2026-09-05)
 
 ### Features

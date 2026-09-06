@@ -1,6 +1,6 @@
 {
   "name": "@mikrojs/esptool",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "description": "Download and cache standalone esptool binaries from Espressif",
   "keywords": [
     "esp32",

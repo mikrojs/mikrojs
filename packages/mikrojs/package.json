@@ -1,6 +1,6 @@
 {
   "name": "mikrojs",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "description": "Deprecated: the mikrojs package was renamed to mikro. Install and use \"mikro\" instead.",
   "keywords": [
     "embedded",
