@@ -36,7 +36,7 @@ const server = createServer((req) => {
 
 const result = server.listen({port: 80})
 if (!result.ok) {
-  console.error('listen failed: %s', result.error.name)
+  console.error('listen failed:', result.error)
 }
 ```
 

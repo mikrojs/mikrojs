@@ -70,7 +70,7 @@ import {decodeUtf8, splitLines} from 'mikro/stream'
 const stream = readStream('/data/events.log').orPanic('log missing')
 for await (const line of splitLines(decodeUtf8(stream))) {
   if (!line.ok) {
-    console.error(`read failed: ${line.error.name}`)
+    console.error('read failed:', line.error)
     break
   }
   console.log(line.value)
@@ -240,10 +240,10 @@ if (!r.ok) {
       console.error('disk full')
       break
     case 'AccessDenied':
-      console.error(`readonly: ${r.error.path}`)
+      console.error('readonly:', r.error.path)
       break
     default:
-      console.error(`${r.error.name}: write failed`)
+      console.error('write failed:', r.error)
   }
 }
 ```

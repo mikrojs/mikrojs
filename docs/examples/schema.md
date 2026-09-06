@@ -32,7 +32,7 @@ if (result.ok) {
   console.log(`Temperature: ${result.value.temperature}`)
   console.log(`Humidity: ${result.value.humidity}`)
 } else {
-  console.error(`Invalid response: ${result.error.message} at ${result.error.path}`)
+  console.error('Invalid response:', result.error)
 }
 ```
 

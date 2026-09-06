@@ -25,7 +25,7 @@ import {request} from 'mikro/http/request'
 // ---cut---
 const result = await request('https://api.example.com/data')
 if (!result.ok) {
-  console.error('Request failed: %s', result.error.name)
+  console.error('Request failed:', result.error)
   return
 }
 
@@ -33,7 +33,7 @@ const response = result.value
 console.log('Status: %d', response.status)
 const data = await response.json()
 if (!data.ok) {
-  console.error('Body decode failed: %s', data.error.name)
+  console.error('Body decode failed:', data.error)
   return
 }
 console.log(data.value)

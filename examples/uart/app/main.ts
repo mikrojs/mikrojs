@@ -15,13 +15,13 @@ uart.write(message).orPanic('Failed to write')
 const reader = uart.read()
 
 if (!reader.ok) {
-  console.error('Failed to start reading: %s', reader.error.name)
+  console.error('Failed to start reading:', reader.error)
 } else {
   // Give data a moment to loop back
   await sleep(1000)
   for await (const chunk of reader.value) {
     if (!chunk.ok) {
-      console.error('UART read error: %s', chunk.error.name)
+      console.error('UART read error:', chunk.error)
       break
     }
     console.log('Received: %s', new TextDecoder().decode(chunk.value))

@@ -221,7 +221,7 @@ import type {Reading} from './types.js'
 import native from 'native:@my-scope/bme280/sensor'
 
 export const SensorError = {
-  ReadFailed: (message: string) => ({name: 'ReadFailed', message}) as const,
+  ReadFailed: (cause: unknown) => ({name: 'ReadFailed', cause}) as const,
 }
 export type SensorError = ReturnType<(typeof SensorError)[keyof typeof SensorError]>
 
@@ -230,12 +230,12 @@ export function readSensor(bus: number, address?: number): Result<Reading, Senso
   try {
     return ok(native.read(bus, address ?? 0x76))
   } catch (e) {
-    return err(SensorError.ReadFailed(e instanceof Error ? e.message : String(e)))
+    return err(SensorError.ReadFailed(e))
   }
 }
 ```
 
-The native module throws, so the wrapper is where that becomes a `Result`. Return a tagged union keyed on `name` rather than a bare `Error`, so callers can switch on the variant. See [Defining errors](/error-handling#defining-errors) for the pattern and [`no-try-catch`](/eslint-rules#no-try-catch) for why the boundary needs the disable comment.
+The native module throws, so the wrapper is where that becomes a `Result`. Return a tagged union keyed on `name` rather than a bare `Error`, so callers can switch on the variant. Keep the thrown value as `cause` instead of copying its `message` into a string: the console prints the cause with its own message, fields and stack, so nothing is lost when a caller logs the error (see [Logging errors](/error-handling#logging-errors)). See [Defining errors](/error-handling#defining-errors) for the pattern and [`no-try-catch`](/eslint-rules#no-try-catch) for why the boundary needs the disable comment.
 
 `runtime/sensor/types.ts`:
 

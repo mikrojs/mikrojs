@@ -31,7 +31,7 @@ const handle = await peripheral.advertise({
 })
 
 if (!handle.ok) {
-  console.error('ble.advertise failed: %s', handle.error.name)
+  console.error('ble.advertise failed:', handle.error)
 }
 ```
 

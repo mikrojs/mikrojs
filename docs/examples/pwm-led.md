@@ -27,13 +27,13 @@ const led = new Pwm(LED_PIN, {freq: 50, duty: 0})
 while (true) {
   const fadeIn = await led.fade(1.0, 1000)
   if (!fadeIn.ok) {
-    console.error('Fade in failed: %s', fadeIn.error.name)
+    console.error('Fade in failed:', fadeIn.error)
     break
   }
 
   const fadeOut = await led.fade(0.0, 1000)
   if (!fadeOut.ok) {
-    console.error('Fade out failed: %s', fadeOut.error.name)
+    console.error('Fade out failed:', fadeOut.error)
     break
   }
 }

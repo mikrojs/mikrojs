@@ -26,7 +26,7 @@ uart.write(new Uint8Array([0x41, 0x54, 0x0d, 0x0a])).orPanic('write failed')
 const reader = uart.read().orPanic('read failed')
 for await (const chunk of reader) {
   if (!chunk.ok) {
-    console.error('uart read failed: %s', chunk.error.name)
+    console.error('uart read failed:', chunk.error)
     break
   }
   console.log('received: %s', new TextDecoder().decode(chunk.value))
@@ -118,7 +118,7 @@ const reader = uart.read().orPanic('read failed')
 
 for await (const chunk of reader) {
   if (!chunk.ok) {
-    console.error('uart read failed: %s', chunk.error.name)
+    console.error('uart read failed:', chunk.error)
     break
   }
   const text = new TextDecoder().decode(chunk.value)

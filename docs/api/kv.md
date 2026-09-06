@@ -96,7 +96,7 @@ const state = nvsStorage.createValue('state', {
   schema: SensorReading,
   initialValue: fallback,
   onReadError: (error) => {
-    console.warn(`corrupt: ${error.message}`)
+    console.warn('corrupt:', error)
     return fallback
   },
 })

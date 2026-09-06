@@ -68,13 +68,13 @@ socket.on('listening', () => {
   console.log(`announcing as ${name} on ${GROUP}:${PORT}${iface ? ` via ${iface}` : ''}`)
   setInterval(() => {
     socket.send(name, PORT, GROUP, (err) => {
-      if (err) console.error(`send failed: ${err.message}`)
+      if (err) console.error('send failed:', err)
     })
   }, ANNOUNCE_MS)
 })
 
 socket.on('error', (err: Error) => {
-  console.error(`socket error: ${err.message}`)
+  console.error('socket error:', err)
   process.exit(1)
 })
 

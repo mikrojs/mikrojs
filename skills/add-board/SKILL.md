@@ -185,15 +185,11 @@ export const pinMap = {
   // GPIO pin assignments for this board
 } as const
 
-const result = createDisplay({
+// orPanic keeps the driver's error as the panic's cause, so the crash
+// report shows what actually failed
+export const display = createDisplay({
   // Board-specific configuration (pins, dimensions, etc.)
-})
-
-if (!result.ok) {
-  throw new Error(`Failed to initialize: ${result.error.message}`)
-}
-
-export const display = result.value
+}).orPanic('display init failed')
 ```
 
 ## Adding a second board to an existing package

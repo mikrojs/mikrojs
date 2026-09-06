@@ -52,13 +52,13 @@ async function main(config: OtaConfig) {
   while (true) {
     const fadeIn = await led.fade(config.pwm.duty, config.interval / 2)
     if (!fadeIn.ok) {
-      console.error('Fade in failed: %s', fadeIn.error.name)
+      console.error('Fade in failed:', fadeIn.error)
       break
     }
 
     const fadeOut = await led.fade(0.0, config.interval / 2)
     if (!fadeOut.ok) {
-      console.error('Fade out failed: %s', fadeOut.error.name)
+      console.error('Fade out failed:', fadeOut.error)
       break
     }
   }

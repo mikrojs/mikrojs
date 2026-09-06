@@ -22,7 +22,7 @@ if (!connectResult.ok) {
     } else {
       const data = await result.value.json()
       if (!data.ok) {
-        console.error(`Body decode failed:`, data.error)
+        console.error('Body decode failed:', data.error)
       } else {
         console.log('Fetched: %o', data.value)
       }

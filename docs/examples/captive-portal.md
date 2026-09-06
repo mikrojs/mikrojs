@@ -36,7 +36,7 @@ console.log('Portal: http://%s/', ip)
 // check lands on this device instead of the internet.
 const dns = await bind({port: 53, family: 'ipv4'})
 if (!dns.ok) {
-  console.error('DNS bind failed: %s', dns.error.name)
+  console.error('DNS bind failed:', dns.error)
 } else {
   const sock = dns.value
   sock.onMessage.subscribe(({msg, from}) => {

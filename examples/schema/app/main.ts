@@ -25,14 +25,14 @@ if (result1.ok) {
   console.log(`Humidity: ${result1.value.humidity}`)
   console.log(`Label: ${result1.value.label ?? '(none)'}`)
 } else {
-  console.error(`Invalid reading: ${result1.error.message} at ${result1.error.path}`)
+  console.error('Invalid reading:', result1.error)
 }
 
 const result2 = s.parse(SensorReading, badReading)
 if (result2.ok) {
   console.log('This should not happen')
 } else {
-  console.error(`Caught bad reading: ${result2.error.message} at path "${result2.error.path}"`)
+  console.error('Caught bad reading:', result2.error)
 }
 
 // ── Validate a tagged union ─────────────────────────────────────────
@@ -49,6 +49,6 @@ for (const cmd of commands) {
   if (result.ok) {
     console.log(`Valid command: ${result.value.type}`)
   } else {
-    console.error(`Invalid command: ${result.error.message} at path "${result.error.path}"`)
+    console.error('Invalid command:', result.error)
   }
 }

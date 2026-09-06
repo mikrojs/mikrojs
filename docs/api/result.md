@@ -103,7 +103,7 @@ import {pinMode} from 'mikro/pin'
 // ---cut---
 const result = pinMode(20, 'OUTPUT')
 if (!result.ok) {
-  console.error(result.error.name)
+  console.error('pinMode failed:', result.error)
   return
 }
 // result.value is available here

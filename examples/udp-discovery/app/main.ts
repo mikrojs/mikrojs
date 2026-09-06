@@ -18,19 +18,19 @@ const passphrase = env.require('WIFI_PASSPHRASE')
 console.log('Connecting to %s...', ssid)
 const connected = await wifi.connect({ssid, passphrase})
 if (!connected.ok) {
-  console.error('WiFi connect failed: %s', connected.error.name)
+  console.error('WiFi connect failed:', connected.error)
 } else {
   console.log('Connected. IP: %s', connected.value.ip)
 
   const bound = await bind({port: PORT, family: 'ipv4'})
   if (!bound.ok) {
-    console.error('bind failed: %s', bound.error.name)
+    console.error('bind failed:', bound.error)
   } else {
     const sock = bound.value
 
     const joined = sock.joinMulticastGroup({address: GROUP})
     if (!joined.ok) {
-      console.error('join failed: %s', joined.error.name)
+      console.error('join failed:', joined.error)
       sock.close()
     } else {
       const me = deviceId
@@ -46,7 +46,7 @@ if (!connected.ok) {
 
       while (true) {
         const sent = await sock.send(me, {address: GROUP, port: PORT, family: 'ipv4'})
-        if (!sent.ok) console.error('send failed: %s', sent.error.name)
+        if (!sent.ok) console.error('send failed:', sent.error)
         await sleep(ANNOUNCE_MS)
       }
     }
