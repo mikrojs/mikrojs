@@ -1,6 +1,6 @@
 {
   "name": "create-mikrojs",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "description": "Create a new Mikro.js project (alias for create-mikro)",
   "keywords": [
     "esp32",

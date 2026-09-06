@@ -1,6 +1,6 @@
 {
   "name": "@mikrojs/analyze-imports",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "description": "ESM import analyzer for Mikro.js bundling",
   "keywords": [
     "analyzer",

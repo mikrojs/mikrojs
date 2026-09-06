@@ -1,6 +1,6 @@
 {
   "name": "@mikrojs/registry",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "description": "Reference OTA update registry for Mikro.js: a portable fetch handler with pluggable storage and auth",
   "keywords": [
     "esp32",
