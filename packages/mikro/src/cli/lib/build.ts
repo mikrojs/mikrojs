@@ -285,7 +285,7 @@ export function build(
       const writeFilesUnbundled = defer(() => trace([entry])).pipe(
         mergeMap(({warnings, fileList, sourcePathMap}) => {
           if (warnings?.length > 0) {
-            return throwError(() => new Error([...warnings].join('\n')))
+            return throwError(() => new Error([...warnings].map((w) => w.message).join('\n')))
           }
           return from(fileList).pipe(
             mergeMap(async (file) => {
@@ -523,7 +523,7 @@ export function buildTests(
       const writeFiles = defer(() => trace(entries)).pipe(
         mergeMap(({warnings, fileList, sourcePathMap}) => {
           if (warnings?.length > 0) {
-            return throwError(() => new Error([...warnings].join('\n')))
+            return throwError(() => new Error([...warnings].map((w) => w.message).join('\n')))
           }
           return from(fileList).pipe(
             mergeMap(async (file) => {

@@ -1211,20 +1211,33 @@ int MIK_RunEntryErr(MIKRuntime* mik_rt, const char* entry, char* err_buf, size_t
             rejected = true;
         }
     }
-    if (failed && err_buf && err_buf_size > 0) {
-        /* Capture the failure's string form for the caller. Without an
-         * err_buf the pending exception is intentionally left on ctx,
-         * matching MIK_RunEntry's historical behavior. */
+    if (failed) {
         JSValue exc = rejected ? JS_PromiseResult(ctx, result) : JS_GetException(ctx);
-        const char* msg = JS_ToCString(ctx, exc);
-        if (msg) {
-            snprintf(err_buf, err_buf_size, "%s", msg);
-            JS_FreeCString(ctx, msg);
-        } else {
-            /* Stringifying the exception itself threw (e.g. OOM) — drop
-             * the secondary exception so it can't leak into later evals. */
-            JSValue stray = JS_GetException(ctx);
-            JS_FreeValue(ctx, stray);
+        if (err_buf && err_buf_size > 0) {
+            /* Capture the failure's string form for the caller. */
+            const char* msg = JS_ToCString(ctx, exc);
+            if (msg) {
+                snprintf(err_buf, err_buf_size, "%s", msg);
+                JS_FreeCString(ctx, msg);
+            } else {
+                /* Stringifying the exception itself threw (e.g. OOM) — drop
+                 * the secondary exception so it can't leak into later evals. */
+                JSValue stray = JS_GetException(ctx);
+                JS_FreeValue(ctx, stray);
+            }
+        }
+        /* A synchronous throw (a missing import, a syntax error) exists only
+         * as the pending exception consumed above, so report it here the way
+         * MIK_Loop reports one it finds pending: handler, dump, stop. Left
+         * unreported, the device idles in silence. A rejected eval promise is
+         * still queued for the loop's rejection flush, which reports it the
+         * same way. */
+        if (!rejected) {
+            if (mik_rt->error_handler_fn) {
+                mik_rt->error_handler_fn(ctx, exc, mik_rt->error_handler_opaque);
+            }
+            mik_dump_error1(ctx, exc);
+            MIK_Stop(mik_rt);
         }
         JS_FreeValue(ctx, exc);
     }

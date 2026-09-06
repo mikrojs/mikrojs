@@ -117,8 +117,8 @@ TEST_CASE("ext builtin load failure propagates instead of falling through to fs"
           doctest::test_suite("modules")) {
     /* The builtin compiles against a virtual native:mikro/wifi stub, but the
      * runtime under test has no native:mikro/wifi (host build, no stub). Loading
-     * must surface the real "Native module 'native:mikro/wifi' is not available"
-     * error, not a generic resolution failure for the package name. */
+     * must surface the real failure naming 'native:mikro/wifi', not a
+     * resolution failure for the package name. */
     ExtBuiltin driver("@acme/bad-driver/bad");
     driver.compile("import {Wifi} from 'native:mikro/wifi'\n"
                    "export function f() { return new Wifi() }\n",
@@ -143,8 +143,8 @@ TEST_CASE("a driver may import another package's native: modules" *
     /* Native-level composition across packages is allowed: an @acme driver may
      * import @other's native: binding directly (e.g. an audio driver reusing a
      * codec package's primitives). There is no such module on the host build, so
-     * it fails at load with "not available" — proving the gate let it through
-     * rather than rejecting the cross-package import. */
+     * it fails to resolve at load — proving the gate let it through rather
+     * than rejecting the cross-package import. */
     ExtBuiltin driver("@acme/audio/audio");
     driver.compile("import 'native:@other/codec/decode'\n"
                    "export function f() {}\n",
@@ -157,7 +157,9 @@ TEST_CASE("a driver may import another package's native: modules" *
     CHECK(JS_IsException(ret));
     JS_FreeValue(ctx, ret);
     std::string msg = pending_exception_message(ctx);
-    CHECK_MESSAGE(msg.find("not available") != std::string::npos, "unexpected error: " << msg);
+    CHECK_MESSAGE(msg.find("Failed to resolve module specifier 'native:@other/codec/decode'") !=
+                      std::string::npos,
+                  "unexpected error: " << msg);
     CHECK_MESSAGE(msg.find("can only be imported by firmware builtins") == std::string::npos,
                   "cross-package native: import was wrongly rejected: " << msg);
     MIK_FreeRuntime(rt);

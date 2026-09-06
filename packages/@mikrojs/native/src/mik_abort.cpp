@@ -52,8 +52,7 @@ static JSValue mik__abort_lazy_get(JSContext* ctx, JSValue this_val, int magic) 
          * would surface a bare 'null'. Mirrors the module loader's
          * missing-builtin fallback. */
         if (!JS_HasException(ctx)) {
-            JS_ThrowReferenceError(ctx,
-                                   "Builtin module 'mikro/abort' is not available in this build");
+            JS_ThrowTypeError(ctx, "Failed to resolve module specifier 'mikro/abort'");
         }
         JS_FreeValue(ctx, global_obj);
         return JS_EXCEPTION;

@@ -162,14 +162,6 @@ TEST_CASE_FIXTURE(EntryFixture, "RunEntry error returns" * doctest::test_suite("
     write("/app/broken.js", "export const = nope\n");
     CHECK(MIK_RunEntryErr(rt, "/app/broken.js", err, sizeof(err)) == -EFAULT);
     CHECK(strstr(err, "SyntaxError") != nullptr);
-
-    /* Without an err_buf the pending exception stays on ctx by contract */
-    write("/app/throws2.js", "throw new Error('kept pending')\n");
-    CHECK(MIK_RunEntry(rt, "/app/throws2.js") == -EFAULT);
-    if (JS_HasException(ctx)) {
-        JSValue exc = JS_GetException(ctx);
-        JS_FreeValue(ctx, exc);
-    }
 }
 
 TEST_CASE_FIXTURE(EntryFixture, "EvalScript runs a plain script file" *
@@ -298,6 +290,45 @@ TEST_CASE_FIXTURE(EntryFixture, "the error handler sees unhandled rejections" *
     JS_FreeValue(ctx, rv);
     MIK_Loop(rt); /* flushes the unhandled-rejection queue */
     CHECK(g_error_seen.find("nobody-caught-me") != std::string::npos);
+}
+
+/* A missing import fails inside JS_Eval's import resolution, before the
+ * module body runs, so it is a plain pending exception rather than a rejected
+ * eval promise. The firmware used to capture that exception into a buffer only
+ * the OTA trial read, and the device idled in silence: no error line, no
+ * restart. The entry API has to report it itself. */
+TEST_CASE_FIXTURE(EntryFixture, "an entry whose import is missing is reported and stops" *
+                                    doctest::test_suite("entry")) {
+    g_error_seen.clear();
+    MIK_SetErrorHandler(rt, capture_error, nullptr);
+    write("/app/main.js",
+          "import {board} from 'mikro/sys/foo'\n"
+          "globalThis.__ran = 'yes'\n");
+    char err[256];
+    CHECK(MIK_RunEntryErr(rt, "/app/main.js", err, sizeof(err)) == -EFAULT);
+    CHECK(strstr(err, "mikro/sys/foo") != nullptr);
+    CHECK(g_error_seen.find("mikro/sys/foo") != std::string::npos);
+    CHECK(MIK_IsStopRequested(rt));
+    CHECK_FALSE(JS_HasException(ctx));
+    CHECK(read_global_string(ctx, "__ran") != "yes");
+
+    /* The loop has nothing left to report: no second handler call. */
+    g_error_seen.clear();
+    MIK_Loop(rt);
+    CHECK(g_error_seen.empty());
+}
+
+/* Same failure through the no-buffer variant, on a fresh runtime so the stop
+ * flag can only come from this call. */
+TEST_CASE_FIXTURE(EntryFixture, "RunEntry without an err_buf reports a sync failure too" *
+                                    doctest::test_suite("entry")) {
+    g_error_seen.clear();
+    MIK_SetErrorHandler(rt, capture_error, nullptr);
+    write("/app/main.js", "import 'mikro/sys/foo'\n");
+    CHECK(MIK_RunEntry(rt, "/app/main.js") == -EFAULT);
+    CHECK(g_error_seen.find("mikro/sys/foo") != std::string::npos);
+    CHECK(MIK_IsStopRequested(rt));
+    CHECK_FALSE(JS_HasException(ctx));
 }
 
 TEST_CASE_FIXTURE(EntryFixture, "the test-emit handler receives __testEmit payloads" *

@@ -124,4 +124,12 @@ describe('build', () => {
 
     expect(listFiles(dotDir)).to.deep.equal(listFiles(bareDir))
   })
+
+  it('reports an unresolvable import by its message, without an Error prefix', async () => {
+    writeFileSync(pathlib.join(tempDir, 'app', 'main.ts'), "import 'lalala'\n")
+    const buildDir = pathlib.join(tempDir, 'out')
+    await expect(runBuild('app/main.ts', buildDir)).rejects.toThrow(
+      /^Failed to resolve dependency "lalala"/,
+    )
+  })
 })

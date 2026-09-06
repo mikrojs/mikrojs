@@ -378,11 +378,12 @@ TEST_CASE_FIXTURE(ModFixture, "unavailable native and builtin modules report cle
     MIK_RegisterVirtualModule(rt, "mikro/test-native-probe", probe, strlen(probe));
     std::string missing =
         eval_main(ctx, "import 'mikro/test-native-probe'\n", "/app/main2.js");
-    CHECK(missing.find("Native module 'native:mikro/no-such' is not available") !=
+    CHECK(missing.find("TypeError: Failed to resolve module specifier 'native:mikro/no-such'") !=
           std::string::npos);
 
     std::string builtin = eval_main(ctx, "import 'mikro/no-such-builtin'\n", "/app/main3.js");
-    CHECK(builtin.find("not available in this build") != std::string::npos);
+    CHECK(builtin.find("TypeError: Failed to resolve module specifier 'mikro/no-such-builtin'") !=
+          std::string::npos);
 }
 
 namespace {
