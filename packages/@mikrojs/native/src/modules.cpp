@@ -234,8 +234,9 @@ static JSModuleDef* mik_module_loader_inner(JSContext* ctx, const char* module_n
             }
         }
         /* Native module not found — this is a device-only module that isn't
-         * available in the current build (e.g. running on desktop). */
-        JS_ThrowReferenceError(ctx, "Native module '%s' is not available", module_name);
+         * available in the current build (e.g. running on desktop). Same
+         * wording as every other unresolvable specifier (and browsers). */
+        JS_ThrowTypeError(ctx, "Failed to resolve module specifier '%s'", module_name);
         return nullptr;
     }
 
@@ -265,8 +266,7 @@ static JSModuleDef* mik_module_loader_inner(JSContext* ctx, const char* module_n
          * returns JS_UNINITIALIZED from an empty exception slot, and
          * re-throwing that surfaced as a bare "[uninitialized]" error. */
         if (!JS_HasException(ctx)) {
-            JS_ThrowReferenceError(ctx, "Builtin module '%s' is not available in this build",
-                                   module_name);
+            JS_ThrowTypeError(ctx, "Failed to resolve module specifier '%s'", module_name);
         }
         return NULL;
     }
@@ -996,7 +996,7 @@ JSValue mik__load_module_ns(JSContext* ctx, const char* importer, const char* sp
         JSValue p = JS_LoadModule(ctx, importer, specifier);
         if (JS_IsException(p)) {
             /* Propagate the loader's real error (e.g. a syntax error in a
-             * virtual stub), not a generic not-available message. */
+             * virtual stub), not a generic resolution failure. */
             JS_FreeAtom(ctx, name);
             return p;
         }
@@ -1016,7 +1016,7 @@ JSValue mik__load_module_ns(JSContext* ctx, const char* importer, const char* sp
     }
     JS_FreeAtom(ctx, name);
     if (!m) {
-        return JS_ThrowReferenceError(ctx, "Native module '%s' is not available", specifier);
+        return JS_ThrowTypeError(ctx, "Failed to resolve module specifier '%s'", specifier);
     }
     /* 5 == EVALUATED; quickjs.h documents the numbering but exports no enum. */
     if (require_evaluated && JS_GetModuleStatus(ctx, m) != 5) {

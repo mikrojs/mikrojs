@@ -16,6 +16,7 @@ import {
   switchMap,
   tap,
   throttle,
+  throwError,
   timer,
 } from 'rxjs'
 import {exhaustMapWithTrailing} from 'rxjs-exhaustmap-with-trailing'
@@ -187,7 +188,15 @@ export function createDevSession(options: {
         minifyLevel,
         logLevel,
         env: 'development',
-      }).pipe(ignoreElements()),
+      }).pipe(
+        ignoreElements(),
+        // Name the phase: the device was already restarted above, so without
+        // this the boot log reads as if the deploy went through.
+        catchError((err: unknown) => {
+          const detail = err instanceof Error ? err.message : String(err)
+          return throwError(() => new Error(`Build failed:\n${detail}`))
+        }),
+      ),
 
       // Deploy phase
       defer(async () => {

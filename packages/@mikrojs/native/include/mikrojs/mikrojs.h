@@ -93,7 +93,9 @@ void MIK_FreeRuntime(MIKRuntime* mik_rt);
  *   -EINVAL   runtime or entry is null/empty
  *   -ENOENT   entry (and its .bjs variant) not on disk
  *   -EFAULT   module evaluation threw
- * Emits no diagnostic output — callers decide whether and how to log. */
+ * A synchronous throw (a missing import, a syntax error) is reported like an
+ * uncaught exception found by MIK_Loop: error handler, dump, MIK_Stop. A
+ * rejected eval promise is reported by the next loop's rejection flush. */
 int MIK_RunEntry(MIKRuntime* mik_rt, const char* entry);
 
 /* MIK_RunEntry variant that, on -EFAULT, copies the thrown exception's

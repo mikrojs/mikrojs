@@ -744,24 +744,19 @@ void MIK_Main(void) {
         if (safe_mode) {
             ESP_LOGW(TAG, "Safe mode: skipping entry point %s", app_config.entry_point);
         } else {
-            /* Catch async fatals (unhandled rejections) during an OTA trial. */
+            /* Catch fatals during an OTA trial: MIK_RunEntry hands a synchronous
+             * throw to this handler itself, the loop's rejection flush hands it
+             * unhandled rejections. Both note the failure and arm the panic
+             * restart so reconcile reverts on the next (clean-looking) boot. */
             MIK_SetErrorHandler(mik_rt, ota_trial_error_handler, nullptr);
-            char entry_err[160] = {0};
-            int rc = MIK_RunEntryErr(mik_rt, app_config.entry_point, entry_err, sizeof(entry_err));
+            int rc = MIK_RunEntry(mik_rt, app_config.entry_point);
             if (rc == -EINVAL) {
                 ESP_LOGW(TAG, "No entry point configured (no \"main\" field in package.json)");
             } else if (rc == -ENOENT) {
                 ESP_LOGW(TAG, "Entry point not found: %s", app_config.entry_point);
             } else if (rc == -EFAULT) {
+                /* Already reported to the console by the runtime. */
                 ESP_LOGE(TAG, "Failed to evaluate %s", app_config.entry_point);
-                /* A synchronous top-level throw doesn't reach the rejection handler
-                 * above. If this is a trial build, flag it and arm the panic restart
-                 * so reconcile reverts on the next (clean-looking) boot. */
-                if (mik__ota_in_trial()) {
-                    mik__ota_note_trial_failure(entry_err[0] ? entry_err
-                                                             : "entry failed to evaluate");
-                    MIK_Stop(mik_rt);
-                }
             }
         }
     }
